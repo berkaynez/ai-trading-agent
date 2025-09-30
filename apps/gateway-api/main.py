@@ -7,8 +7,86 @@ from typing import Optional
 import logging, time
 from collections import deque
 import pandas as pd
+import requests
+from datetime import datetime
 
 load_dotenv()
+
+# ---- Sentiment helpers (CryptoPanic + cache) ----
+_SENT_CACHE = {"key": "", "ts": 0.0, "data": None}
+_SENT_TTL = 60  # sn
+
+def _symbol_base(sym: str) -> str:
+    return (sym or "BTC/USDT").split("/")[0].upper()
+
+def fetch_sentiment_real(symbol: str):
+    token = (os.getenv("CRYPTOPANIC_TOKEN") or "").strip()
+    base = _symbol_base(symbol)
+    if not token:
+        return {"symbol": symbol, "sent_score": 0.0, "items": []}
+    url = f"https://cryptopanic.com/api/v1/posts/?auth_token={token}&currencies={base}&filter=hot"
+    r = requests.get(url, timeout=5)
+    j = r.json()
+    items = []
+    score = 0.0
+    for it in (j.get("results") or [])[:10]:
+        title = it.get("title","") or ""
+        t = title.lower()
+        p = 0
+        for w in ["surge","rally","up","bull","breakout","pump","gain"]:
+            if w in t: p += 1
+        for w in ["dump","down","fall","bear","retrace","selloff","crash"]:
+            if w in t: p -= 1
+        items.append({"title": title, "domain": it.get("domain",""), "score": p})
+    if items:
+        score = sum(i["score"] for i in items) / max(1, len(items))
+    return {"symbol": symbol, "sent_score": round(float(score), 3), "items": items[:5]}
+
+def fetch_sentiment(symbol: str):
+    now = time.time()
+    key = symbol.upper()
+    if _SENT_CACHE["data"] and _SENT_CACHE["key"] == key and now - _SENT_CACHE["ts"] < _SENT_TTL:
+        return _SENT_CACHE["data"]
+    try:
+        data = fetch_sentiment_real(symbol)
+    except Exception:
+        # Token yoksa veya hata varsa random yerine 0 puan dönen güvenli fallback:
+        data = {"symbol": symbol, "sent_score": 0.0, "items": []}
+    _SENT_CACHE.update({"key": key, "ts": now, "data": data})
+    return data
+
+# ---- Risk state (in-memory) ----
+_RISK = {"day": None, "baseline": None}
+
+def _today_key():
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def _get_equity_usdt():
+    # basit yaklaşım: toplam USDT (testnet için yeterli)
+    bal = binance.fetch_balance()
+    total_usdt = float(bal.get("total", {}).get("USDT", 0.0))
+    return total_usdt
+
+def _ensure_baseline():
+    day = _today_key()
+    if _RISK["day"] != day or _RISK["baseline"] is None:
+        _RISK["day"] = day
+        _RISK["baseline"] = max(_get_equity_usdt(), 1e-6)
+    return _RISK["baseline"]
+
+def _dd_ok():
+    base = _ensure_baseline()
+    eq = _get_equity_usdt()
+    dd = (eq - base) / base  # negatifse drawdown
+    limit = float(os.getenv("RISK_MAX_DRAWDOWN_DAILY", "0.03"))
+    return dd >= -limit, dd, base, eq
+
+def _notional_ok(symbol: str, qty: float):
+    tick = binance.fetch_ticker(symbol)
+    px = float(tick["last"])
+    notional = px * float(qty)
+    cap = float(os.getenv("RISK_MAX_POS_USD", "300"))
+    return notional <= cap, notional, cap
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gateway")
@@ -123,6 +201,21 @@ def order(o: OrderReq):
         params = {}
         if o.type == "limit" and o.price is None:
             raise ValueError("Limit emri için price gerekli.")
+        
+        # Risk guards
+        ok_dd, dd, base, eq = _dd_ok()
+        ok_notional, notion, cap = _notional_ok(o.symbol, o.qty)
+        if not ok_dd or not ok_notional:
+            msg = {
+                "status": "BLOCKED_BY_RISK",
+                "dd": round(dd, 4),
+                "baseline": round(base, 2),
+                "equity": round(eq, 2),
+                "notional": round(notion, 2),
+                "cap": cap
+            }
+            return msg  # EXEC=true olsa bile güvenlik için blokluyoruz
+        
         enable_exec = (os.getenv("ENABLE_ORDER_EXECUTION") or "").lower() == "true"
         if enable_exec:
             # Gerçek emir (testnet veya gerçek) – dikkat!
@@ -150,6 +243,19 @@ def order_oco(req: OcoReq):
             sl = entry * (1 + req.stop_loss_pct)
         else:
             raise ValueError("side 'buy' veya 'sell' olmalı")
+
+        # Risk guards
+        ok_dd, dd, base, eq = _dd_ok()
+        ok_notional, notion, cap = _notional_ok(req.symbol, req.qty)
+        if not ok_dd or not ok_notional:
+            return {
+                "status": "BLOCKED_BY_RISK",
+                "dd": round(dd, 4),
+                "baseline": round(base, 2),
+                "equity": round(eq, 2),
+                "notional": round(notion, 2),
+                "cap": cap
+            }
 
         enable_exec = (os.getenv("ENABLE_ORDER_EXECUTION") or "").lower() == "true"
         if enable_exec:
@@ -187,21 +293,7 @@ def get_decisions(limit: int = 50):
 @app.get("/sentiment/{symbol}")
 def sentiment(symbol: str):
     try:
-        # Mock sentiment data - in production, integrate with CryptoPanic API
-        import random
-        sent_score = round(random.uniform(-3, 3), 2)
-        items = [
-            {"title": f"Bitcoin price analysis: {symbol} shows strong momentum"},
-            {"title": f"Market sentiment for {symbol} remains bullish"},
-            {"title": f"Technical indicators suggest {symbol} consolidation"},
-            {"title": f"Trading volume for {symbol} increases significantly"},
-            {"title": f"Investor confidence in {symbol} reaches new highs"}
-        ]
-        return {
-            "symbol": symbol,
-            "sent_score": sent_score,
-            "items": items
-        }
+        return fetch_sentiment(symbol)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -222,9 +314,9 @@ def features(symbol: str):
         ema50 = ta.ema(df["c"], length=50).iloc[-1]
         rsi14 = ta.rsi(df["c"], length=14).iloc[-1]
         
-        # Get sentiment (mock)
-        import random
-        sent_score = round(random.uniform(-3, 3), 2)
+        # Get sentiment (real)
+        sent = fetch_sentiment(symbol)
+        sent_score = float(sent.get("sent_score", 0.0))
         
         return {
             "symbol": symbol,

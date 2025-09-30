@@ -1,10 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
-import SentimentCard from "./components/SentimentCard";
-import OcoForm from "./components/OcoForm";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const API = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8000";
 const SYMBOL = "BTC/USDT";
@@ -13,31 +9,24 @@ const TF = "15m";
 type Candle = { ts: number; o: number; h: number; l: number; c: number; v: number; };
 
 export default function Page() {
+  const [feat, setFeat] = useState<any>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [price, setPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [ocoResult, setOcoResult] = useState<any>(null);
-  const [ocoLoading, setOcoLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const load = async () => {
+    setErr(null);
     try {
-      const [tickRes, canRes] = await Promise.all([
-        fetch(`${API}/ticker/${encodeURIComponent(SYMBOL)}`),
+      const [fRes, cRes] = await Promise.all([
+        fetch(`${API}/features/${encodeURIComponent(SYMBOL)}`),
         fetch(`${API}/candles/${encodeURIComponent(SYMBOL)}?timeframe=${TF}&limit=200`)
       ]);
-      const tick = await tickRes.json();
-      const raws: Candle[] = await canRes.json();
-      setPrice(tick?.last ?? tick?.close ?? null);
-      setCandles(
-        raws.map(r => ({
-          ...r,
-          // recharts datayı x olarak string ister; ts -> hh:mm
-          // 15m için kısa format:
-          ts: r.ts
-        }))
-      );
-    } catch (e) {
-      console.error(e);
+      if (!fRes.ok) throw new Error("features error");
+      if (!cRes.ok) throw new Error("candles error");
+      setFeat(await fRes.json());
+      setCandles(await cRes.json());
+    } catch (e: any) {
+      setErr(e?.message || "error");
     } finally {
       setLoading(false);
     }
@@ -45,26 +34,9 @@ export default function Page() {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 30_000);
+    const id = setInterval(load, 30000);
     return () => clearInterval(id);
   }, []);
-
-  const simulateOco = async (formData: any) => {
-    setOcoLoading(true);
-    try {
-      const response = await fetch(`${API}/order/oco`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const result = await response.json();
-      setOcoResult(result);
-    } catch (e) {
-      console.error('OCO simulation failed:', e);
-    } finally {
-      setOcoLoading(false);
-    }
-  };
 
   const chartData = useMemo(() => {
     return candles.map(c => ({
@@ -75,25 +47,32 @@ export default function Page() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 600 }}>AI Trading Dashboard</h1>
-      <p style={{ marginTop: 8, color: "#444" }}>
-        Sembol: <b>{SYMBOL}</b> — Zaman Dilimi: <b>{TF}</b>
-      </p>
+      <h1 style={{ fontSize: 22, fontWeight: 700 }}>AI Trading Dashboard</h1>
+      <div style={{ marginTop: 6, color: "#555" }}>
+        Sembol: <b>{SYMBOL}</b> — TF: <b>{TF}</b>
+      </div>
 
-      <div style={{
-        marginTop: 16, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap"
-      }}>
-        <div style={{ padding: "8px 12px", border: "1px solid #eee", borderRadius: 8 }}>
-          Son Fiyat: <b>{price ? Number(price).toFixed(2) : "—"}</b>
-        </div>
-        <button onClick={load} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd" }}>
+      <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <button onClick={load} style={{ padding: "8px 12px", border: "1px solid #ddd", borderRadius: 8 }}>
           Yenile
         </button>
+        {err && <span style={{ color: "crimson" }}>Hata: {err}</span>}
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16 }}>
-        <SentimentCard symbol="BTC/USDT" />
-        <OcoForm symbol="BTC/USDT" />
+        <div style={{ border: "1px solid #eee", borderRadius: 8, padding: 12, minWidth: 260 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Özet</div>
+          {feat ? (
+            <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.8 }}>
+              <li>Fiyat: <b>{feat.price}</b></li>
+              <li>EMA20: <b>{feat.ema20}</b> | EMA50: <b>{feat.ema50}</b></li>
+              <li>RSI14: <b>{feat.rsi14}</b></li>
+              <li>Sentiment: <b>{feat.sent_score}</b></li>
+            </ul>
+          ) : (
+            <div>Veri yok…</div>
+          )}
+        </div>
       </div>
 
       <div style={{ width: "100%", height: 380, marginTop: 16 }}>
@@ -111,104 +90,6 @@ export default function Page() {
           </ResponsiveContainer>
         )}
       </div>
-
-      <div style={{ marginTop: 24, padding: 16, border: "1px solid #ddd", borderRadius: 8 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>OCO Simulation</h2>
-        <OcoForm onSubmit={simulateOco} loading={ocoLoading} />
-        {ocoResult && (
-          <div style={{ marginTop: 16, padding: 12, backgroundColor: "#f5f5f5", borderRadius: 6 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Simulation Result:</h3>
-            <div><strong>Entry:</strong> {ocoResult.entry_price}</div>
-            <div><strong>Take Profit:</strong> {ocoResult.take_profit_price} ({ocoResult.params.tp_pct * 100}%)</div>
-            <div><strong>Stop Loss:</strong> {ocoResult.stop_loss_price} ({ocoResult.params.sl_pct * 100}%)</div>
-            <div><strong>Quantity:</strong> {ocoResult.qty}</div>
-          </div>
-        )}
-      </div>
     </div>
-  );
-}
-
-function OcoForm({ onSubmit, loading }: { onSubmit: (data: any) => void, loading: boolean }) {
-  const [formData, setFormData] = useState({
-    symbol: "BTC/USDT",
-    side: "buy",
-    qty: 0.001,
-    take_profit_pct: 0.01,
-    stop_loss_pct: 0.005
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-      <div>
-        <label style={{ display: "block", fontSize: 14, marginBottom: 4 }}>Symbol:</label>
-        <input
-          type="text"
-          value={formData.symbol}
-          onChange={(e) => setFormData({...formData, symbol: e.target.value})}
-          style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-        />
-      </div>
-      <div>
-        <label style={{ display: "block", fontSize: 14, marginBottom: 4 }}>Side:</label>
-        <select
-          value={formData.side}
-          onChange={(e) => setFormData({...formData, side: e.target.value})}
-          style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-        >
-          <option value="buy">Buy</option>
-          <option value="sell">Sell</option>
-        </select>
-      </div>
-      <div>
-        <label style={{ display: "block", fontSize: 14, marginBottom: 4 }}>Quantity:</label>
-        <input
-          type="number"
-          step="0.001"
-          value={formData.qty}
-          onChange={(e) => setFormData({...formData, qty: parseFloat(e.target.value)})}
-          style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4, width: 80 }}
-        />
-      </div>
-      <div>
-        <label style={{ display: "block", fontSize: 14, marginBottom: 4 }}>TP %:</label>
-        <input
-          type="number"
-          step="0.001"
-          value={formData.take_profit_pct}
-          onChange={(e) => setFormData({...formData, take_profit_pct: parseFloat(e.target.value)})}
-          style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4, width: 80 }}
-        />
-      </div>
-      <div>
-        <label style={{ display: "block", fontSize: 14, marginBottom: 4 }}>SL %:</label>
-        <input
-          type="number"
-          step="0.001"
-          value={formData.stop_loss_pct}
-          onChange={(e) => setFormData({...formData, stop_loss_pct: parseFloat(e.target.value)})}
-          style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4, width: 80 }}
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={loading}
-        style={{
-          padding: "8px 16px",
-          backgroundColor: loading ? "#ccc" : "#007bff",
-          color: "white",
-          border: "none",
-          borderRadius: 4,
-          cursor: loading ? "not-allowed" : "pointer"
-        }}
-      >
-        {loading ? "Simulating..." : "Simulate OCO"}
-      </button>
-    </form>
   );
 }

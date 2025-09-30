@@ -4,3 +4,4 @@ ccxt
 python-dotenv
 pandas
 pandas-ta
+requests
