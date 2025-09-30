@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 import ccxt, os
 from dotenv import load_dotenv
 from typing import Optional
-import logging, time, json
+import logging, time
+from collections import deque
 
 load_dotenv()
 
@@ -13,9 +14,11 @@ logger = logging.getLogger("gateway")
 
 app = FastAPI(title="AI Trade Gateway (Binance Testnet)")
 
+# CORS configuration from environment
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +51,18 @@ class OrderReq(BaseModel):
     qty: float        # base amount
     type: str = "market"  # "market" | "limit"
     price: float | None = None
+    
+    @validator('side')
+    def validate_side(cls, v):
+        if v.lower() not in ['buy', 'sell']:
+            raise ValueError('side must be "buy" or "sell"')
+        return v.lower()
+    
+    @validator('type')
+    def validate_type(cls, v):
+        if v.lower() not in ['market', 'limit']:
+            raise ValueError('type must be "market" or "limit"')
+        return v.lower()
 
 class OcoReq(BaseModel):
     symbol: str           # "BTC/USDT"
@@ -56,6 +71,28 @@ class OcoReq(BaseModel):
     entry_type: str = "market"    # şimdilik market
     take_profit_pct: float = 0.01 # +%1
     stop_loss_pct: float = 0.005  # -%0.5
+    
+    @validator('side')
+    def validate_side(cls, v):
+        if v.lower() not in ['buy', 'sell']:
+            raise ValueError('side must be "buy" or "sell"')
+        return v.lower()
+    
+    @validator('entry_type')
+    def validate_entry_type(cls, v):
+        if v.lower() not in ['market', 'limit']:
+            raise ValueError('entry_type must be "market" or "limit"')
+        return v.lower()
+
+class Decision(BaseModel):
+    ts: float          # time.time()
+    symbol: str
+    action: str        # long/exit/hold vs
+    score: float
+    price: float
+    note: str | None = None
+
+DECISIONS = deque(maxlen=500)
 
 @app.get("/health")
 def health():
@@ -135,3 +172,13 @@ def order_oco(req: OcoReq):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/agent/decision")
+def post_decision(d: Decision):
+    DECISIONS.append(d.dict())
+    return {"ok": True, "size": len(DECISIONS)}
+
+@app.get("/agent/decisions")
+def get_decisions(limit: int = 50):
+    data = list(DECISIONS)[-limit:]
+    return {"items": data[::-1]}  # son gelen ilk gelsin

@@ -3,6 +3,7 @@ from datetime import datetime
 import pandas as pd
 import pandas_ta as ta
 import ccxt
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,6 +13,7 @@ SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TF = os.getenv("TIMEFRAME", "15m")
 LOOKBACK = int(os.getenv("LOOKBACK", "300"))
 SLEEP_SEC = int(os.getenv("SLEEP_SEC", "30"))
+GATEWAY = os.getenv("GATEWAY_URL", "http://localhost:8000")
 
 # Binance CCXT istemcisi
 ex = ccxt.binance({
@@ -63,6 +65,19 @@ def main_loop():
 
             # DRY-RUN log
             print(f"[{datetime.now()}] {SYMBOL} px={px:.2f} action={sig['action']} score={sig['score']} qty={qty}")
+
+            # Decision logging to API
+            try:
+                requests.post(f"{GATEWAY}/agent/decision", json={
+                    "ts": time.time(),
+                    "symbol": SYMBOL,
+                    "action": sig["action"],
+                    "score": sig["score"],
+                    "price": px,
+                    "note": "ema20/ema50 + rsi14"
+                }, timeout=3)
+            except Exception as ex:
+                print("decision post failed:", ex)
 
             # Gerçek emir kapalı: sadece gösteriyoruz
             # Örn: market buy (açmak isterseniz gateway /order'a POST edilebilir)
