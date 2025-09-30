@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const API = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8000";
-const SYMBOL = "BTC/USDT";
+const SYMBOL = "BTCUSDT";  // Binance format: no slash
+const SYMBOL_DISPLAY = "BTC/USDT";  // Display format with slash
 const TF = "15m";
 
 type Candle = { ts: number; o: number; h: number; l: number; c: number; v: number; };
@@ -45,12 +46,15 @@ export default function Page() {
     }));
   }, [candles]);
 
+  // Son kapanış fiyatını hesapla
+  const lastClose = candles.length ? candles[candles.length - 1].c : null;
+
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700 }}>AI Trading Dashboard</h1>
-      <div style={{ marginTop: 6, color: "#555" }}>
-        Sembol: <b>{SYMBOL}</b> — TF: <b>{TF}</b>
-      </div>
+        <h1 style={{ fontSize: 22, fontWeight: 700 }}>AI Trading Dashboard</h1>
+        <div style={{ marginTop: 6, color: "#555" }}>
+          Sembol: <b>{SYMBOL_DISPLAY}</b> — TF: <b>{TF}</b>
+        </div>
 
       <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
         <button onClick={load} style={{ padding: "8px 12px", border: "1px solid #ddd", borderRadius: 8 }}>
@@ -64,13 +68,19 @@ export default function Page() {
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Özet</div>
           {feat ? (
             <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.8 }}>
-              <li>Fiyat: <b>{feat.price}</b></li>
-              <li>EMA20: <b>{feat.ema20}</b> | EMA50: <b>{feat.ema50}</b></li>
-              <li>RSI14: <b>{feat.rsi14}</b></li>
+              <li>Fiyat: <b>{feat.price?.toLocaleString?.() ?? feat.price}</b></li>
+              <li>EMA20: <b>{feat.ema20?.toLocaleString?.() ?? feat.ema20}</b> | EMA50: <b>{feat.ema50?.toLocaleString?.() ?? feat.ema50}</b></li>
+              <li>RSI14: <b>{feat.rsi14?.toFixed?.(2) ?? feat.rsi14}</b></li>
               <li>Sentiment: <b>{feat.sent_score}</b></li>
+              <li>Son Kapanış (15m): <b>{lastClose ? lastClose.toLocaleString() : "—"}</b></li>
             </ul>
           ) : (
             <div>Veri yok…</div>
+          )}
+          {feat && feat.sent_score === 0 && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
+              Not: CRYPTOPANIC_TOKEN ayarlı değilse sentiment 0 döner.
+            </div>
           )}
         </div>
       </div>
@@ -83,8 +93,8 @@ export default function Page() {
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="time" />
-              <YAxis domain={["dataMin", "dataMax"]} />
-              <Tooltip />
+              <YAxis domain={["dataMin", "dataMax"]} tickFormatter={(v) => v.toLocaleString()} />
+              <Tooltip formatter={(value) => [value.toLocaleString(), "Fiyat"]} />
               <Line type="monotone" dataKey="close" dot={false} />
             </LineChart>
           </ResponsiveContainer>
