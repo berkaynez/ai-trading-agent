@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
+import SentimentCard from "./components/SentimentCard";
+import OcoForm from "./components/OcoForm";
 
 const API = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8000";
 const SYMBOL = "BTC/USDT";
@@ -87,6 +89,11 @@ export default function Page() {
         <button onClick={load} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd" }}>
           Yenile
         </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16 }}>
+        <SentimentCard symbol="BTC/USDT" />
+        <OcoForm symbol="BTC/USDT" />
       </div>
 
       <div style={{ width: "100%", height: 380, marginTop: 16 }}>

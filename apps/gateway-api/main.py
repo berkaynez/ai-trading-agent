@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from typing import Optional
 import logging, time
 from collections import deque
+import pandas as pd
 
 load_dotenv()
 
@@ -182,3 +183,56 @@ def post_decision(d: Decision):
 def get_decisions(limit: int = 50):
     data = list(DECISIONS)[-limit:]
     return {"items": data[::-1]}  # son gelen ilk gelsin
+
+@app.get("/sentiment/{symbol}")
+def sentiment(symbol: str):
+    try:
+        # Mock sentiment data - in production, integrate with CryptoPanic API
+        import random
+        sent_score = round(random.uniform(-3, 3), 2)
+        items = [
+            {"title": f"Bitcoin price analysis: {symbol} shows strong momentum"},
+            {"title": f"Market sentiment for {symbol} remains bullish"},
+            {"title": f"Technical indicators suggest {symbol} consolidation"},
+            {"title": f"Trading volume for {symbol} increases significantly"},
+            {"title": f"Investor confidence in {symbol} reaches new highs"}
+        ]
+        return {
+            "symbol": symbol,
+            "sent_score": sent_score,
+            "items": items
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/features/{symbol}")
+def features(symbol: str):
+    try:
+        # Get current price
+        ticker = binance.fetch_ticker(symbol)
+        price = float(ticker["last"])
+        
+        # Get candles for technical analysis
+        ohlcv = binance.fetch_ohlcv(symbol, timeframe="15m", limit=100)
+        df = pd.DataFrame(ohlcv, columns=["ts","o","h","l","c","v"])
+        
+        # Calculate technical indicators
+        import pandas_ta as ta
+        ema20 = ta.ema(df["c"], length=20).iloc[-1]
+        ema50 = ta.ema(df["c"], length=50).iloc[-1]
+        rsi14 = ta.rsi(df["c"], length=14).iloc[-1]
+        
+        # Get sentiment (mock)
+        import random
+        sent_score = round(random.uniform(-3, 3), 2)
+        
+        return {
+            "symbol": symbol,
+            "price": round(price, 2),
+            "ema20": round(ema20, 2),
+            "ema50": round(ema50, 2),
+            "rsi14": round(rsi14, 2),
+            "sent_score": sent_score
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

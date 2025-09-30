@@ -1,9 +1,8 @@
-import os, time
+import os, time, requests, math
 from datetime import datetime
 import pandas as pd
 import pandas_ta as ta
 import ccxt
-import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,6 +13,8 @@ TF = os.getenv("TIMEFRAME", "15m")
 LOOKBACK = int(os.getenv("LOOKBACK", "300"))
 SLEEP_SEC = int(os.getenv("SLEEP_SEC", "30"))
 GATEWAY = os.getenv("GATEWAY_URL", "http://localhost:8000")
+W_TECH = float(os.getenv("W_TECH", "0.7"))
+W_SENT = float(os.getenv("W_SENT", "0.3"))
 
 # Binance CCXT istemcisi
 ex = ccxt.binance({
@@ -53,6 +54,14 @@ def position_sizing(balance_usdt: float, price: float, risk_per_trade=0.01, stop
     qty = risk_usd / (price * stop_pct)
     return round(qty, 4)
 
+def get_sentiment(symbol: str):
+    try:
+        r = requests.get(f"{GATEWAY}/sentiment/{symbol}", timeout=3)
+        j = r.json()
+        return float(j.get("sent_score", 0.0))
+    except Exception:
+        return 0.0
+
 def main_loop():
     print(f"[{datetime.now()}] Agent started SYMBOL={SYMBOL} TF={TF} (DRY-RUN)")
     while True:
@@ -63,18 +72,27 @@ def main_loop():
             px = sig["price"]
             qty = position_sizing(balance_usdt=bal, price=px)
 
+            # Sentiment + Technical blend
+            sent = get_sentiment(SYMBOL)
+            tech_score = sig["score"]           # -1..+1 ölçek varsay
+            edge = W_TECH * tech_score + W_SENT * max(-1.0, min(1.0, sent / 3.0))  # kaba normalizasyon
+
+            action = sig["action"]
+            if edge < 0.2 and action == "long":
+                action = "hold"
+
             # DRY-RUN log
-            print(f"[{datetime.now()}] {SYMBOL} px={px:.2f} action={sig['action']} score={sig['score']} qty={qty}")
+            print(f"[{datetime.now()}] {SYMBOL} px={px:.2f} action={action} edge={round(edge,3)} (tech={round(tech_score,3)} sent={round(sent,3)}) qty={qty}")
 
             # Decision logging to API
             try:
                 requests.post(f"{GATEWAY}/agent/decision", json={
                     "ts": time.time(),
                     "symbol": SYMBOL,
-                    "action": sig["action"],
-                    "score": sig["score"],
+                    "action": action,
+                    "score": round(edge, 3),
                     "price": px,
-                    "note": "ema20/ema50 + rsi14"
+                    "note": f"tech={round(tech_score,3)} sent={round(sent,3)} wT={W_TECH} wS={W_SENT}"
                 }, timeout=3)
             except Exception as ex:
                 print("decision post failed:", ex)
