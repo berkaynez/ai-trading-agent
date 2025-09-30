@@ -108,11 +108,6 @@ export default function Page() {
           ) : (
             <div>Veri yok…</div>
           )}
-          {feat && feat.sent_score === 0 && (
-            <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
-              Not: CRYPTOPANIC_TOKEN ayarlı değilse sentiment 0 döner.
-            </div>
-          )}
         </div>
       </div>
 
