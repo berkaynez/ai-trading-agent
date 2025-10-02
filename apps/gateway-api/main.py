@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 import ccxt, os
 from dotenv import load_dotenv
 from typing import Optional
@@ -53,6 +53,8 @@ def fetch_sentiment(symbol: str):
         # Token yoksa veya hata varsa random yerine 0 puan dönen güvenli fallback:
         data = {"symbol": symbol, "sent_score": 0.0, "items": []}
     _SENT_CACHE.update({"key": key, "ts": now, "data": data})
+    # Debug logging
+    logger.info(f"[sentiment] symbol={symbol} items={len(data.get('items',[]))} score={data.get('sent_score')}")
     return data
 
 # ---- Risk state (in-memory) ----
@@ -131,13 +133,15 @@ class OrderReq(BaseModel):
     type: str = "market"  # "market" | "limit"
     price: float | None = None
     
-    @validator('side')
+    @field_validator('side')
+    @classmethod
     def validate_side(cls, v):
         if v.lower() not in ['buy', 'sell']:
             raise ValueError('side must be "buy" or "sell"')
         return v.lower()
     
-    @validator('type')
+    @field_validator('type')
+    @classmethod
     def validate_type(cls, v):
         if v.lower() not in ['market', 'limit']:
             raise ValueError('type must be "market" or "limit"')
@@ -151,13 +155,15 @@ class OcoReq(BaseModel):
     take_profit_pct: float = 0.01 # +%1
     stop_loss_pct: float = 0.005  # -%0.5
     
-    @validator('side')
+    @field_validator('side')
+    @classmethod
     def validate_side(cls, v):
         if v.lower() not in ['buy', 'sell']:
             raise ValueError('side must be "buy" or "sell"')
         return v.lower()
     
-    @validator('entry_type')
+    @field_validator('entry_type')
+    @classmethod
     def validate_entry_type(cls, v):
         if v.lower() not in ['market', 'limit']:
             raise ValueError('entry_type must be "market" or "limit"')
@@ -291,28 +297,40 @@ def get_decisions(limit: int = 50):
     return {"items": data[::-1]}  # son gelen ilk gelsin
 
 @app.get("/sentiment/{symbol}")
-def sentiment(symbol: str):
+def sentiment(symbol: str, force: bool = Query(False)):
     try:
+        global _SENT_CACHE
+        if force:
+            _SENT_CACHE = {"key": "", "ts": 0.0, "data": None}
         return fetch_sentiment(symbol)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/features/{symbol}")
-def features(symbol: str):
+def features(symbol: str, timeframe: str = Query("15m"), limit: int = Query(100)):
     try:
         # Get current price
         ticker = binance.fetch_ticker(symbol)
         price = float(ticker["last"])
         
         # Get candles for technical analysis
-        ohlcv = binance.fetch_ohlcv(symbol, timeframe="15m", limit=100)
+        ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         df = pd.DataFrame(ohlcv, columns=["ts","o","h","l","c","v"])
         
         # Calculate technical indicators
         import pandas_ta as ta
-        ema20 = ta.ema(df["c"], length=20).iloc[-1]
-        ema50 = ta.ema(df["c"], length=50).iloc[-1]
-        rsi14 = ta.rsi(df["c"], length=14).iloc[-1]
+        ema20_series = ta.ema(df["c"], length=20)
+        ema50_series = ta.ema(df["c"], length=50)
+        rsi14_series = ta.rsi(df["c"], length=14)
+        
+        # Handle cases where indicators might be None (insufficient data)
+        ema20 = ema20_series.iloc[-1] if ema20_series is not None and not ema20_series.empty else None
+        ema50 = ema50_series.iloc[-1] if ema50_series is not None and not ema50_series.empty else None
+        rsi14 = rsi14_series.iloc[-1] if rsi14_series is not None and not rsi14_series.empty else None
+        
+        # If any indicator is None, we need more data
+        if ema20 is None or ema50 is None or rsi14 is None:
+            raise HTTPException(status_code=400, detail=f"Insufficient data for timeframe {timeframe}. Try a shorter timeframe or increase limit.")
         
         # Get sentiment (real)
         sent = fetch_sentiment(symbol)
@@ -320,6 +338,7 @@ def features(symbol: str):
         
         return {
             "symbol": symbol,
+            "timeframe": timeframe,
             "price": round(price, 2),
             "ema20": round(ema20, 2),
             "ema50": round(ema50, 2),
