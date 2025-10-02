@@ -9,6 +9,7 @@ from collections import deque
 import pandas as pd
 import requests
 from datetime import datetime
+from joblib import load
 
 load_dotenv()
 
@@ -56,6 +57,33 @@ def fetch_sentiment(symbol: str):
     # Debug logging
     logger.info(f"[sentiment] symbol={symbol} items={len(data.get('items',[]))} score={data.get('sent_score')}")
     return data
+
+# ---- ML Model ----
+_MODEL = None
+def _load_model():
+    global _MODEL
+    if _MODEL is None:
+        path = os.getenv("MODEL_PATH", "models/ml/model.pkl")
+        # API gateway-api dizininde çalışıyor, model proje kökünde
+        if not os.path.exists(path):
+            path = os.path.join(os.path.dirname(__file__), "..", "..", "models", "ml", "model.pkl")
+        _MODEL = load(path)
+    return _MODEL
+
+def _build_live_features(symbol: str, timeframe: str = "15m", limit: int = 120):
+    ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+    df = pd.DataFrame(ohlcv, columns=["ts","o","h","l","c","v"])
+    # Add shared module to path
+    import sys
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+    from feature_builder import add_features
+    dfF = add_features(df)
+    row = dfF.iloc[-1]
+    X = [[
+        row["ret_1"], row["ret_3"], row["ret_6"], row["vol_10"],
+        row["ema20"], row["ema50"], row["ema_spread"], row["rsi14"]
+    ]]
+    return dfF, X
 
 # ---- Risk state (in-memory) ----
 _RISK = {"day": None, "baseline": None}
@@ -344,6 +372,40 @@ def features(symbol: str, timeframe: str = Query("15m"), limit: int = Query(100)
             "ema50": round(ema50, 2),
             "rsi14": round(rsi14, 2),
             "sent_score": sent_score
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/ai/predict")
+def ai_predict(symbol: str, timeframe: str = Query("15m")):
+    try:
+        model = _load_model()
+        dfF, X = _build_live_features(symbol, timeframe=timeframe)
+        # model çıktısı: sınıf ve olasılıklar
+        proba = getattr(model, "predict_proba", None)
+        if proba:
+            # sınıf sırası [-1, 0, 1] olmayabilir; eşle
+            classes = list(model.classes_)
+            probs = proba(X)[0]
+            p_long = probs[classes.index(1)] if 1 in classes else 0.0
+            p_exit = probs[classes.index(-1)] if -1 in classes else 0.0
+            p_hold = probs[classes.index(0)] if 0 in classes else 0.0
+        else:
+            pred = int(model.predict(X)[0])
+            p_long = 1.0 if pred==1 else 0.0
+            p_exit = 1.0 if pred==-1 else 0.0
+            p_hold = 1.0 if pred==0 else 0.0
+
+        sent = fetch_sentiment(symbol)
+        sent_score = float(sent.get("sent_score", 0.0))
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "p_long": round(float(p_long), 3),
+            "p_hold": round(float(p_hold), 3),
+            "p_exit": round(float(p_exit), 3),
+            "sent_score": round(sent_score, 3),
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

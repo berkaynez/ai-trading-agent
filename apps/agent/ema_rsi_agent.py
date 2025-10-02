@@ -13,8 +13,9 @@ TF = os.getenv("TIMEFRAME", "15m")
 LOOKBACK = int(os.getenv("LOOKBACK", "300"))
 SLEEP_SEC = int(os.getenv("SLEEP_SEC", "30"))
 GATEWAY = os.getenv("GATEWAY_URL", "http://localhost:8000")
-W_TECH = float(os.getenv("W_TECH", "0.7"))
-W_SENT = float(os.getenv("W_SENT", "0.3"))
+W_TECH = float(os.getenv("W_TECH", "0.5"))
+W_ML = float(os.getenv("W_ML", "0.5"))
+W_SENT = float(os.getenv("W_SENT", "0.0"))
 
 # Binance CCXT istemcisi
 ex = ccxt.binance({
@@ -62,6 +63,14 @@ def get_sentiment(symbol: str):
     except Exception:
         return 0.0
 
+def get_ai_prob(symbol: str, tf: str):
+    try:
+        r = requests.get(f"{GATEWAY}/ai/predict", params={"symbol": symbol, "timeframe": tf}, timeout=3)
+        j = r.json()
+        return j.get("p_long", 0.0), j.get("p_exit", 0.0), j.get("sent_score", 0.0)
+    except Exception:
+        return 0.0, 0.0, 0.0
+
 def main_loop():
     print(f"[{datetime.now()}] Agent started SYMBOL={SYMBOL} TF={TF} (DRY-RUN)")
     while True:
@@ -73,16 +82,22 @@ def main_loop():
             qty = position_sizing(balance_usdt=bal, price=px)
 
             # Sentiment + Technical blend
-            sent = get_sentiment(SYMBOL)
-            tech_score = sig["score"]           # -1..+1 ölçek varsay
-            edge = W_TECH * tech_score + W_SENT * max(-1.0, min(1.0, sent / 3.0))  # kaba normalizasyon
-
-            action = sig["action"]
-            if edge < 0.2 and action == "long":
-                action = "hold"
+            # AI + Sentiment + Technical blend
+            p_long, p_exit, sent = get_ai_prob(SYMBOL, TF)
+            tech_score = sig["score"]          # -1..+1 (EMA/RSI kuralından)
+            edge_ml = (p_long - p_exit)        # -1..+1 benzeri
+            
+            # Ağırlıklı karar
+            edge = W_TECH * tech_score + W_ML * edge_ml
+            
+            action = "hold"
+            if edge > 0.25:
+                action = "long"
+            elif edge < -0.25:
+                action = "exit"
 
             # DRY-RUN log
-            print(f"[{datetime.now()}] {SYMBOL} px={px:.2f} action={action} edge={round(edge,3)} (tech={round(tech_score,3)} sent={round(sent,3)}) qty={qty}")
+            print(f"[AI] p_long={p_long:.2f} p_exit={p_exit:.2f} sent={sent:.2f} tech={tech_score:.2f} edge={edge:.2f} => {action}")
 
             # Decision logging to API
             try:
@@ -92,7 +107,7 @@ def main_loop():
                     "action": action,
                     "score": round(edge, 3),
                     "price": px,
-                    "note": f"tech={round(tech_score,3)} sent={round(sent,3)} wT={W_TECH} wS={W_SENT}"
+                    "note": f"p_long={p_long:.2f} p_exit={p_exit:.2f} tech={tech_score:.2f}"
                 }, timeout=3)
             except Exception as ex:
                 print("decision post failed:", ex)

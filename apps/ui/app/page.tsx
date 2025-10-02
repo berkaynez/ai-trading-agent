@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import AICard from "./components/AICard";
 
 const API = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8000";
 const DEFAULT_SYMBOL = "BTCUSDT";  // Binance format: no slash
@@ -125,6 +126,10 @@ export default function Page() {
             </LineChart>
           </ResponsiveContainer>
         )}
+      </div>
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16 }}>
+        <AICard symbol={symbol} tf={tf} />
       </div>
     </div>
   );
