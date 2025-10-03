@@ -10,6 +10,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 from joblib import load
+import re
 
 load_dotenv()
 
@@ -20,11 +21,50 @@ _SENT_TTL = 60  # sn
 def _symbol_base(sym: str) -> str:
     return (sym or "BTC/USDT").split("/")[0].upper()
 
+def _fetch_rss_titles(base: str):
+    feeds = [
+        "https://coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
+        "https://cointelegraph.com/rss"
+    ]
+    titles = []
+    for url in feeds:
+        try:
+            r = requests.get(url, timeout=5)
+            txt = r.text
+            # çok basit parser
+            for m in re.finditer(r"<title>(.*?)</title>", txt, re.IGNORECASE|re.DOTALL):
+                t = re.sub(r"<.*?>", "", m.group(1)).strip()
+                if not t or t.lower().startswith("rss"): 
+                    continue
+                titles.append(t)
+        except Exception:
+            pass
+    # base (BTC/ETH) filtrele
+    b = base.upper()
+    keep = [t for t in titles if b in t.upper() or "BITCOIN" in t.upper() or "CRYPTO" in t.upper()]
+    return keep[:12]
+
+def _score_titles(titles: list[str]):
+    pos = ["surge","rally","up","bull","breakout","pump","gain","soar","spike","ath","approval","etf"]
+    neg = ["dump","down","fall","bear","retrace","selloff","crash","plunge","reject","ban","hack"]
+    scores = []
+    for title in titles:
+        t = title.lower()
+        s = sum(1 for w in pos if w in t) - sum(1 for w in neg if w in t)
+        scores.append(s)
+    if not scores:
+        return 0.0, []
+    raw = sum(scores)/len(scores)
+    return max(-3.0, min(3.0, raw)), titles[:5]
+
 def fetch_sentiment_real(symbol: str):
     token = (os.getenv("CRYPTOPANIC_TOKEN") or "").strip()
     base = _symbol_base(symbol)
     if not token:
-        return {"symbol": symbol, "sent_score": 0.0, "items": []}
+        # RSS fallback
+        titles = _fetch_rss_titles(base)
+        score, top = _score_titles(titles)
+        return {"symbol": symbol, "sent_score": round(float(score), 3), "items": [{"title": t, "domain": "rss", "score": 0} for t in top]}
     url = f"https://cryptopanic.com/api/v1/posts/?auth_token={token}&currencies={base}&filter=hot"
     r = requests.get(url, timeout=5)
     j = r.json()
@@ -220,6 +260,8 @@ def ticker(symbol: str):
 
 @app.get("/candles/{symbol}")
 def candles(symbol: str, timeframe: Optional[str] = "15m", limit: Optional[int] = 200):
+    # Convert BTC/USDT to BTCUSDT for Binance API
+    symbol = symbol.replace("/", "")
     try:
         raw = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         return [
@@ -336,6 +378,8 @@ def sentiment(symbol: str, force: bool = Query(False)):
 
 @app.get("/features/{symbol}")
 def features(symbol: str, timeframe: str = Query("15m"), limit: int = Query(100)):
+    # Convert BTC/USDT to BTCUSDT for Binance API
+    symbol = symbol.replace("/", "")
     try:
         # Get current price
         ticker = binance.fetch_ticker(symbol)

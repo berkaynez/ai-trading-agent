@@ -77,7 +77,8 @@ def main_loop():
         try:
             df = fetch_candles()
             sig = make_signal(df)
-            bal = ex.fetch_balance().get("total", {}).get("USDT", 1000.0)
+            # DRY-RUN mode: use fixed balance instead of real API call
+            bal = 1000.0  # Fixed balance for testing
             px = sig["price"]
             qty = position_sizing(balance_usdt=bal, price=px)
 
