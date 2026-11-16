@@ -1,123 +1,263 @@
-AI Trading Agent
 
-An experimental cryptocurrency trading research platform combining technical analysis, machine learning, news sentiment, and a web dashboard.
+# AI Trading Agent
 
-Built with Python, FastAPI, Next.js, TypeScript, and scikit-learn.
+**An experimental cryptocurrency trading research platform combining technical analysis, machine learning, and news sentiment.**
 
-Research prototype — not a production trading system or financial advice. The project has not demonstrated profitable trading performance. Real order execution is possible through an explicitly enabled gateway configuration and must be treated with caution.
+**Tech Stack:** Python · FastAPI · scikit-learn · Next.js · TypeScript · CCXT
 
-Overview
+> [!WARNING]
+> **Research prototype — not a production trading system or financial advice.** Trading profitability has not been established. The gateway contains an optional order-execution path that requires explicit configuration. Never enable live execution without independently validating the implementation.
 
-AI Trading Agent explores how multiple market signals can be combined to support trading decisions.
+## Overview
 
-The system includes:
+AI Trading Agent explores how multiple market signals can be combined to support cryptocurrency trading decisions.
 
-* A Python agent generating technical trading signals from EMA and RSI indicators.
-* A Random Forest classifier trained on historical OHLCV-derived features.
-* A FastAPI gateway providing market data, model predictions, sentiment scores, and order-related endpoints.
-* A Next.js dashboard displaying price charts, technical indicators, and model output.
-* A configurable decision process combining technical and machine-learning signals.
+The platform integrates technical indicators, a machine-learning classifier, cryptocurrency news sentiment, and a web dashboard.
 
-Architecture
+The Python agent currently generates and logs decisions without directly submitting trading orders.
 
-Binance Market Data
-        |
-        +--> Technical Indicators (EMA / RSI)
-        |
-        +--> Feature Engineering --> Random Forest Model
-        |
-        +--> News Headlines --> Sentiment Scoring
-                                  |
-                             FastAPI Gateway
-                                  |
-                   +--------------+-------------+
-                   |                            |
-              Python Agent                Next.js Dashboard
-                   |
-             Decision Logging
+## Key Features
 
-Key Features
+### Technical Analysis
+- EMA20 and EMA50 trend indicators
+- RSI14 momentum indicator
+- Long, exit, and hold signal generation
+- Market data retrieval through CCXT
 
-Technical Analysis
+### Machine Learning
+- Random Forest classification using scikit-learn
+- Historical OHLCV-based feature engineering
+- Return, volatility, EMA, and RSI features
+- Long, exit, and hold probability estimates
 
-Calculates EMA20, EMA50, and RSI14 to identify potential directional signals.
+### News Sentiment
+- Cryptocurrency news headline analysis
+- Keyword-based sentiment scoring
+- CryptoPanic integration with RSS fallback
+- Short-term sentiment caching
 
-Machine Learning
+### Trading Agent
+- Configurable technical and ML signal weights
+- Decision scoring and threshold-based actions
+- Decision logging through FastAPI
+- Dry-run operation without direct order submission
 
-Uses a Random Forest classifier with historical return, volatility, moving-average, and RSI features to explore long, exit, and hold classifications.
+**Note:** The current agent retrieves sentiment information but does not include it in the final weighted trading decision.
 
-News Sentiment
+### Web Dashboard
+- Market price monitoring
+- Interactive price charts
+- EMA and RSI indicators
+- Sentiment information
+- AI prediction display
+- Agent decision history
 
-Processes cryptocurrency news headlines using keyword-based sentiment scoring, with a configured provider or RSS fallback.
+### Risk Controls
+- Configurable position-notional limits
+- Daily drawdown checks
+- Optional gateway order execution
+- Testnet configuration support
 
-Trading Agent
+These controls are experimental and are not sufficient for production trading.
 
-Combines technical and machine-learning scores to generate decisions. The current agent logs decisions rather than directly submitting orders.
+## System Architecture
 
-Web Dashboard
+```text
+                  Binance Market Data
+                          |
+             +------------+------------+
+             |                         |
+       Technical Analysis        Feature Engineering
+         EMA20 / EMA50                  |
+             RSI14               Random Forest
+             |                         |
+             +------------+------------+
+                          |
+                    Python Agent
+                          |
+                   Decision Logging
+                          |
+                    FastAPI Gateway
+                          |
+                    Next.js Dashboard
 
-Displays market prices, candlestick-derived price history, technical indicators, sentiment, and AI prediction information.
+          Cryptocurrency News Feeds
+                          |
+                 Sentiment Scoring
+                          |
+                    FastAPI Gateway
+```
 
-Risk Controls
+## Technology Stack
 
-The gateway includes configurable position-notional and daily drawdown checks. These are prototype controls and should not be relied upon as production-grade safeguards.
+| Component | Technologies |
+|---|---|
+| Trading Agent | Python, pandas, pandas-ta, CCXT |
+| Machine Learning | scikit-learn, NumPy, joblib |
+| Backend API | FastAPI, Pydantic |
+| Frontend | Next.js, React, TypeScript |
+| Data Visualization | Recharts |
+| Market Data | Binance via CCXT |
+| News Sentiment | CryptoPanic, RSS feeds |
 
-Technology Stack
+## Project Structure
 
-Layer	Technologies
-Trading agent	Python, pandas, pandas-ta, CCXT
-Machine learning	scikit-learn, NumPy, joblib
-Backend API	FastAPI, Pydantic
-Frontend	Next.js, React, TypeScript, Recharts
-Data sources	Binance market data, cryptocurrency news feeds
+```text
+ai-trading-agent/
+├── apps/
+│   ├── agent/
+│   │   ├── ema_rsi_agent.py
+│   │   └── train_ml.py
+│   ├── gateway-api/
+│   │   ├── main.py
+│   │   ├── requirements.txt
+│   │   ├── .env.example
+│   │   └── run.sh
+│   ├── shared/
+│   │   └── feature_builder.py
+│   └── ui/
+│       ├── app/
+│       └── package.json
+├── models/
+│   └── ml/
+│       └── model.pkl
+├── run_agent.sh
+└── README.md
+```
 
-Repository Structure
+## Getting Started
 
-apps/
-  agent/
-    ema_rsi_agent.py
-    train_ml.py
-  gateway-api/
-    main.py
-    requirements.txt
-    .env.example
-  shared/
-    feature_builder.py
-  ui/
-    app/
-models/
-  ml/
-    model.pkl
-run_agent.sh
+> The following commands reflect the repository's existing scripts. They have not been independently executed or verified in this review.
 
-Development Notes
+### Prerequisites
 
-The gateway’s example environment configuration is located at apps/gateway-api/.env.example.
+- Python and pip
+- Node.js and npm
+- Internet access for market data
+- Exchange API credentials if required by your configuration
 
-The backend has a local startup script, and the frontend has standard Next.js development commands.
+### 1. Clone the Repository
 
-Before running the system, review the gateway configuration, dependencies, exchange credentials, and execution settings.
+```bash
+git clone https://github.com/berkaynez/ai-trading-agent.git
+cd ai-trading-agent
+```
 
-Do not enable live order execution with real exchange credentials without independently validating the implementation and its safeguards.
+### 2. Start the Backend
 
-Current Limitations
+```bash
+cd apps/gateway-api
+bash run.sh
+```
 
-* No documented out-of-sample performance benchmark or trading profitability validation.
-* No verified production-ready backtesting and execution framework.
-* The news sentiment approach is keyword-based, not a trained language model.
-* The agent’s current decision blend uses technical and ML scores; sentiment is retrieved but is not included in the final weighted decision.
-* Risk controls and model behavior require additional validation.
-* The repository includes a serialized model artifact; load such files only from trusted sources.
+The script creates a Python virtual environment, installs dependencies, copies the example environment file when needed, and starts the FastAPI server.
 
-Roadmap
+Backend URL:
 
-* Add reproducible model evaluation and time-series validation.
-* Implement a backtesting framework with fees and slippage.
-* Add automated tests and CI checks.
-* Improve configuration validation and execution safety.
-* Document reproducible installation and startup procedures.
-* Add dashboard screenshots and example results.
+```text
+http://localhost:8000
+```
 
-Disclaimer
+Health endpoint:
 
-This repository is intended for software engineering, financial data analysis, and machine-learning experimentation. It does not provide investment advice or guarantee financial returns.
+```text
+http://localhost:8000/health
+```
+
+Review the `.env` configuration before supplying credentials or enabling any execution settings.
+
+### 3. Start the Frontend
+
+Open another terminal from the repository root:
+
+```bash
+cd apps/ui
+npm ci
+npm run dev
+```
+
+Dashboard URL:
+
+```text
+http://localhost:3000
+```
+
+The dashboard connects to the local gateway by default.
+
+### 4. Run the Trading Agent
+
+After preparing the gateway Python environment, return to the repository root and run:
+
+```bash
+bash run_agent.sh
+```
+
+The agent retrieves market data, generates signals, and logs decisions.
+
+**The current Python agent does not directly submit trading orders.**
+
+### 5. Model Training
+
+The model training script is located at:
+
+```text
+apps/agent/train_ml.py
+```
+
+It uses historical market data and technical features to train a Random Forest classifier.
+
+The default model output path is:
+
+```text
+models/ml/model.pkl
+```
+
+Model training and evaluation require further validation before predictions can be considered reliable.
+
+## API Endpoints
+
+Selected FastAPI endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | API health check |
+| `GET /ticker/{symbol}` | Market ticker |
+| `GET /candles/{symbol}` | OHLCV market data |
+| `GET /features/{symbol}` | Technical indicators and sentiment |
+| `GET /sentiment/{symbol}` | News sentiment |
+| `GET /ai/predict` | Machine-learning predictions |
+| `GET /agent/decisions` | Logged agent decisions |
+| `POST /agent/decision` | Record an agent decision |
+| `POST /order` | Order request with risk checks |
+| `POST /order/oco` | Prototype OCO calculation |
+
+**Security note:** The gateway's order-execution behavior depends on its configuration. `ENABLE_ORDER_EXECUTION` and `BINANCE_TESTNET` are separate settings. Do not assume that enabling order execution automatically restricts requests to a sandbox.
+
+## Current Limitations
+
+- No documented out-of-sample performance benchmark.
+- No verified profitability or production trading results.
+- No validated backtesting framework with fees and slippage.
+- Sentiment analysis uses keyword-based scoring rather than a trained language model.
+- Sentiment is not yet included in the agent's final weighted decision.
+- Risk controls require additional validation.
+- Decision history is stored in memory and is lost when the gateway restarts.
+- Automated test coverage and CI have not been established in this repository review.
+- The included serialized model should only be loaded from a trusted source.
+
+## Roadmap
+
+- [ ] Add automated tests and GitHub Actions CI.
+- [ ] Implement reproducible time-series model evaluation.
+- [ ] Develop a backtesting framework.
+- [ ] Include transaction costs and slippage.
+- [ ] Improve exchange execution safety.
+- [ ] Integrate sentiment into the decision engine.
+- [ ] Add verified dashboard screenshots.
+- [ ] Document reproducible model training and evaluation.
+
+## Disclaimer
+
+This project is intended for educational and research purposes in software engineering, machine learning, and financial data analysis.
+
+It does not constitute financial advice or guarantee investment returns.
